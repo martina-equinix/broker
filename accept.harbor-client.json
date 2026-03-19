@@ -1,0 +1,19 @@
+{
+  "public": [
+    {
+      "method": "GET",
+      "path": "/healthcheck"
+    },
+    {
+      "method": "GET",
+      "path": "/systemcheck"
+    }
+  ],
+  "private": [
+    {
+      "method": "any",
+      "path": "/(.*)",
+      "origin": "${HARBOR_URL}"
+    }
+  ]
+}

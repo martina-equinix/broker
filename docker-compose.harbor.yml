@@ -1,0 +1,79 @@
+# Snyk Broker Classic — Harbor proxy for Backstage
+#
+# Runs both the broker SERVER (proxies to Harbor, lives near Harbor) and the
+# broker CLIENT (Backstage talks to this, lives near Backstage).
+#
+# Usage:
+#   cp .env.harbor.example .env.harbor   # fill in your values
+#   docker compose -f docker-compose.harbor.yml --env-file .env.harbor up --build
+#
+# Backstage app-config.yaml:
+#   harbor:
+#     baseUrl: http://localhost:${CLIENT_PORT:-8001}
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Broker SERVER ────────────────────────────────────────────────────────────
+  # Sits close to Harbor (or in the same cluster).  Authenticates requests to
+  # Harbor using the robot account credentials.
+  broker-harbor-server:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.harbor
+    image: broker-harbor-server:latest
+    container_name: broker-harbor-server
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-7341}:${SERVER_PORT:-7341}"
+    environment:
+      # ── Harbor connection ──────────────────────────────────────────────
+      HARBOR_URL: ${HARBOR_URL:-https://harbor.delivery.metalkube.net}
+      HARBOR_USERNAME: ${HARBOR_USERNAME:?HARBOR_USERNAME is required}
+      HARBOR_PASSWORD: ${HARBOR_PASSWORD:?HARBOR_PASSWORD is required}
+      # ── Server settings ────────────────────────────────────────────────
+      PORT: ${SERVER_PORT:-7341}
+      ACCEPT: /home/node/accept.harbor.json
+      # Shared token — the client must present the same value to connect
+      BROKER_TOKEN: ${BROKER_TOKEN:?BROKER_TOKEN is required (UUIDv4)}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${SERVER_PORT:-7341}/healthcheck', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Broker CLIENT ────────────────────────────────────────────────────────────
+  # Sits next to Backstage.  Backstage calls this; it tunnels the request to the
+  # server which then forwards it to Harbor.
+  broker-harbor-client:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.harbor-client
+    image: broker-harbor-client:latest
+    container_name: broker-harbor-client
+    restart: unless-stopped
+    depends_on:
+      broker-harbor-server:
+        condition: service_healthy
+    ports:
+      - "${CLIENT_PORT:-8001}:${CLIENT_PORT:-8001}"
+    environment:
+      # ── Broker connection ──────────────────────────────────────────────
+      BROKER_TOKEN: ${BROKER_TOKEN:?BROKER_TOKEN is required (UUIDv4)}
+      BROKER_SERVER_URL: ${BROKER_SERVER_URL:-http://broker-harbor-server:7341}
+      # URL Backstage (and the server) uses to reach this client
+      BROKER_CLIENT_URL: ${BROKER_CLIENT_URL:-http://broker-harbor-client:8001}
+      # ── Client settings ────────────────────────────────────────────────
+      PORT: ${CLIENT_PORT:-8001}
+      ACCEPT: /home/node/accept.harbor-client.json
+      # Harbor URL forwarded in the accept rules
+      HARBOR_URL: ${HARBOR_URL:-https://harbor.delivery.metalkube.net}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${CLIENT_PORT:-8001}/healthcheck', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+

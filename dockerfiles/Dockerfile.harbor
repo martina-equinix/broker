@@ -1,0 +1,57 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Snyk Broker Classic Server — Harbor proxy for Backstage (v4.147.0)
+#
+# This image runs the broker in "server" mode, acting as an authenticated
+# reverse proxy between Backstage (or any internal client) and Harbor.
+#
+# Required environment variables at runtime:
+#   HARBOR_USERNAME   – Harbor robot account username
+#   HARBOR_PASSWORD   – Harbor robot account password
+#   HARBOR_URL        – Full URL of your Harbor instance, e.g.
+#                       https://harbor.delivery.metalkube.net
+#   PORT              – Port the broker server listens on (default: 7341)
+#
+# Optional:
+#   BROKER_TOKEN      – Shared secret used to authenticate broker clients
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM node:20.19-trixie-slim
+
+ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
+ENV PATH=$PATH:/home/node/.npm-global/bin
+
+# ── runtime defaults ──────────────────────────────────────────────────────────
+ENV PORT=7341 \
+    BROKER_TYPE=harbor \
+    HARBOR_URL=https://harbor.delivery.metalkube.net
+
+USER root
+
+# Install the older working version of snyk-broker
+RUN npm install --global snyk-broker@4.147.0
+
+# removing non-used (transitive) dependencies to fix vulnerabilities
+RUN rm -rf /home/node/.npm-global/lib/node_modules/snyk-broker/node_modules/setheader/node_modules/debug
+
+WORKDIR /home/node
+
+# ── broker accept rules and connection config ─────────────────────────────────
+COPY accept.harbor.json  /home/node/accept.harbor.json
+COPY config.harbor.json  /home/node/config.harbor.json
+COPY config.default.json /home/node/config.default.json
+
+# Symlink config.default.json to the broker installation directory
+RUN ln -sf /home/node/config.default.json /home/node/.npm-global/lib/node_modules/snyk-broker/config.default.json
+
+# ── fix permissions for arbitrary UIDs (OpenShift / restricted PSPs) ──────────
+RUN chgrp -R 0 /home/node && \
+    chmod -R g=u,o= /home/node && \
+    chown -R node /home/node
+
+USER node
+
+EXPOSE ${PORT}
+
+# Run as broker SERVER, using the harbor accept list and connection config.
+CMD ["npx", "broker", "server", "--port", "7341"]
+

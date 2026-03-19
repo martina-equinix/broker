@@ -1,0 +1,11 @@
+
+{
+  "harbor": {
+    "target": "https://harbor.delivery.metalkube.net",
+    "auth": {
+      "type": "basic",
+      "username": "$HARBOR_USERNAME",
+      "password": "$HARBOR_PASSWORD"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "public": [
+    {
+      "method": "any",
+      "path": "/(.*)"
+    }
+  ],
+  "private": []
+}
+
