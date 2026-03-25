@@ -21,6 +21,7 @@ reports/
 /dockerfiles/**/metadata.json
 /dockerfiles/**/package.json
 /test/fixtures/certs/tmp
+.env.harbor
 .env
 accept.json
 
