@@ -1,0 +1,59 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Snyk Broker Classic Client — Generic (v4.147.0)
+#
+# One image, any backend. The backend is selected at runtime via env vars.
+# Ships accept files for every supported backend; the active one is chosen
+# by setting ACCEPT to the desired path at container start.
+#
+# Required environment variables at runtime:
+#   BROKER_TOKEN        – Shared UUIDv4 secret (must match the server)
+#   BROKER_SERVER_URL   – URL of the broker server,
+#                         e.g. http://broker-server:7341
+#   BROKER_CLIENT_URL   – Public/reachable URL of THIS client (for callbacks),
+#                         e.g. http://broker-harbor-client:8001
+#   BACKEND_URL         – Full base URL of the proxied backend,
+#                         e.g. https://harbor.delivery.metalkube.net
+#                              https://argo.delivery.metalkube.net
+#   ACCEPT              – Path to the accept-rules file inside the container:
+#                         /home/node/accept.harbor-client.json   (Harbor)
+#                         /home/node/accept.argocd-client.json   (ArgoCD)
+#   PORT                – Port this client listens on (default: 8001)
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM node:20.19-trixie-slim
+
+ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
+ENV PATH=$PATH:/home/node/.npm-global/bin
+
+# ── runtime defaults ──────────────────────────────────────────────────────────
+ENV PORT=8001
+
+USER root
+
+# Install the older working version of snyk-broker
+RUN npm install --global snyk-broker@4.147.0
+
+# removing non-used (transitive) dependencies to fix vulnerabilities
+RUN rm -rf /home/node/.npm-global/lib/node_modules/snyk-broker/node_modules/setheader/node_modules/debug
+
+WORKDIR /home/node
+
+# ── broker accept rules (all backends) ───────────────────────────────────────
+COPY accept.harbor-client.json  /home/node/accept.harbor-client.json
+COPY accept.argocd-client.json  /home/node/accept.argocd-client.json
+COPY config.default.json        /home/node/config.default.json
+
+# Symlink config.default.json to the broker installation directory
+RUN ln -sf /home/node/config.default.json /home/node/.npm-global/lib/node_modules/snyk-broker/config.default.json
+
+# ── fix permissions for arbitrary UIDs (OpenShift / restricted PSPs) ──────────
+RUN chgrp -R 0 /home/node && \
+    chmod -R g=u,o= /home/node && \
+    chown -R node /home/node
+
+USER node
+
+EXPOSE ${PORT}
+
+# ACCEPT env var selects which accept-rules file is loaded at runtime.
+CMD ["npx", "broker", "client", "--verbose"]

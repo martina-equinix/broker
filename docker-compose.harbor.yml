@@ -1,42 +1,42 @@
-# Snyk Broker Classic — Harbor proxy for Backstage
+# Snyk Broker Classic — LOCAL POC (Harbor + ArgoCD)
 #
-# Runs both the broker SERVER (proxies to Harbor, lives near Harbor) and the
-# broker CLIENT (Backstage talks to this, lives near Backstage).
+# ⚠️  THIS FILE IS FOR LOCAL DEVELOPMENT ONLY.
+#     Production deployment uses Helm — see README.harbor.md § Production.
+#
+# Three containers, all on the same Docker network (simulates METAL + GEN
+# on a single laptop):
+#   broker-server        – shared server; Backstage points ALL plugins here
+#   broker-harbor-client – one client process proxying to Harbor
+#   broker-argocd-client – one client process proxying to ArgoCD
+#
+# Both clients use the same image (broker-client:latest); the backend is
+# selected at runtime via BACKEND_URL, BROKER_TOKEN, and ACCEPT.
 #
 # Usage:
-#   cp .env.harbor.example .env.harbor   # fill in your values
-#   docker compose -f docker-compose.harbor.yml --env-file .env.harbor up --build
+#   cp .env.harbor.example .env.harbor   # fill in credentials & tokens
+#   docker compose -f docker-compose.harbor.yml --env-file .env.harbor up --build -d
 #
-# Backstage app-config.yaml:
-#   harbor:
-#     baseUrl: http://localhost:${CLIENT_PORT:-8001}
+# Backstage app-config.local.yaml:
+#   harbor.baseUrl:  http://localhost:7341/broker/<HARBOR_BROKER_TOKEN>/
+#   argocd.url:      http://localhost:7341/broker/<ARGOCD_BROKER_TOKEN>
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
 
-  # ── Broker SERVER ────────────────────────────────────────────────────────────
-  # Sits close to Harbor (or in the same cluster).  Authenticates requests to
-  # Harbor using the robot account credentials.
-  broker-harbor-server:
+  # ── Broker SERVER (shared) ───────────────────────────────────────────────────
+  broker-server:
     build:
       context: .
-      dockerfile: dockerfiles/Dockerfile.harbor
-    image: broker-harbor-server:latest
-    container_name: broker-harbor-server
+      dockerfile: dockerfiles/Dockerfile.server
+    image: broker-server:latest
+    container_name: broker-server
     restart: unless-stopped
     ports:
       - "${SERVER_PORT:-7341}:${SERVER_PORT:-7341}"
     environment:
-      # ── Harbor connection ──────────────────────────────────────────────
-      HARBOR_URL: ${HARBOR_URL:-https://harbor.delivery.metalkube.net}
-      HARBOR_USERNAME: ${HARBOR_USERNAME:?HARBOR_USERNAME is required}
-      HARBOR_PASSWORD: ${HARBOR_PASSWORD:?HARBOR_PASSWORD is required}
-      # ── Server settings ────────────────────────────────────────────────
       PORT: ${SERVER_PORT:-7341}
-      ACCEPT: /home/node/accept.harbor.json
-      # Shared token — the client must present the same value to connect
-      BROKER_TOKEN: ${BROKER_TOKEN:?BROKER_TOKEN is required (UUIDv4)}
+      ACCEPT: /home/node/accept.server.json
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:${SERVER_PORT:-7341}/healthcheck', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
@@ -44,36 +44,44 @@ services:
       retries: 3
       start_period: 15s
 
-  # ── Broker CLIENT ────────────────────────────────────────────────────────────
-  # Sits next to Backstage.  Backstage calls this; it tunnels the request to the
-  # server which then forwards it to Harbor.
+  # ── Broker CLIENT — Harbor ────────────────────────────────────────────────────
   broker-harbor-client:
     build:
       context: .
-      dockerfile: dockerfiles/Dockerfile.harbor-client
-    image: broker-harbor-client:latest
+      dockerfile: dockerfiles/Dockerfile.client
+    image: broker-client:latest
     container_name: broker-harbor-client
     restart: unless-stopped
     depends_on:
-      broker-harbor-server:
+      broker-server:
         condition: service_healthy
     ports:
-      - "${CLIENT_PORT:-8001}:${CLIENT_PORT:-8001}"
+      - "${HARBOR_PORT:-8001}:${HARBOR_PORT:-8001}"
     environment:
-      # ── Broker connection ──────────────────────────────────────────────
-      BROKER_TOKEN: ${BROKER_TOKEN:?BROKER_TOKEN is required (UUIDv4)}
-      BROKER_SERVER_URL: ${BROKER_SERVER_URL:-http://broker-harbor-server:7341}
-      # URL Backstage (and the server) uses to reach this client
-      BROKER_CLIENT_URL: ${BROKER_CLIENT_URL:-http://broker-harbor-client:8001}
-      # ── Client settings ────────────────────────────────────────────────
-      PORT: ${CLIENT_PORT:-8001}
+      BROKER_SERVER_URL: http://broker-server:${SERVER_PORT:-7341}
+      BROKER_TOKEN: ${HARBOR_BROKER_TOKEN:?HARBOR_BROKER_TOKEN is required (UUIDv4)}
+      BACKEND_URL: ${HARBOR_URL:-https://harbor.delivery.metalkube.net}
+      BROKER_CLIENT_URL: http://broker-harbor-client:${HARBOR_PORT:-8001}
+      PORT: ${HARBOR_PORT:-8001}
       ACCEPT: /home/node/accept.harbor-client.json
-      # Harbor URL forwarded in the accept rules
-      HARBOR_URL: ${HARBOR_URL:-https://harbor.delivery.metalkube.net}
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${CLIENT_PORT:-8001}/healthcheck', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+      HARBOR_USERNAME: ${HARBOR_USERNAME}
+      HARBOR_PASSWORD: ${HARBOR_PASSWORD}
 
+  # ── Broker CLIENT — ArgoCD ───────────────────────────────────────────────────
+  broker-argocd-client:
+    image: broker-client:latest   # reuses same image, no build needed
+    container_name: broker-argocd-client
+    restart: unless-stopped
+    depends_on:
+      broker-server:
+        condition: service_healthy
+    ports:
+      - "${ARGOCD_PORT:-8002}:${ARGOCD_PORT:-8002}"
+    environment:
+      BROKER_SERVER_URL: http://broker-server:${SERVER_PORT:-7341}
+      BROKER_TOKEN: ${ARGOCD_BROKER_TOKEN:?ARGOCD_BROKER_TOKEN is required (UUIDv4)}
+      BACKEND_URL: ${ARGOCD_URL:-https://argo.delivery.metalkube.net}
+      BROKER_CLIENT_URL: http://broker-argocd-client:${ARGOCD_PORT:-8002}
+      PORT: ${ARGOCD_PORT:-8002}
+      ACCEPT: /home/node/accept.argocd-client.json
+      ARGOCD_TOKEN: ${ARGOCD_TOKEN:?ARGOCD_TOKEN is required}

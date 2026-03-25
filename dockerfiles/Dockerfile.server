@@ -1,0 +1,47 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Snyk Broker Classic — Shared Server (v4.147.0)
+#
+# One server instance handles ALL broker clients, each identified by its own
+# BROKER_TOKEN. Backstage points every plugin at this single server URL,
+# using the token to address the correct backend client:
+#
+#   http://<server>:7341/broker/<HARBOR_TOKEN>/api/v2.0/...
+#   http://<server>:7341/broker/<ARGOCD_TOKEN>/api/v2.0/...
+#
+# Required environment variables at runtime:
+#   PORT  – Port to listen on (default: 7341)
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM node:20.19-trixie-slim
+
+ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
+ENV PATH=$PATH:/home/node/.npm-global/bin
+ENV PORT=7341
+
+USER root
+
+RUN npm install --global snyk-broker@4.147.0
+
+# removing non-used (transitive) dependencies to fix vulnerabilities
+RUN rm -rf /home/node/.npm-global/lib/node_modules/snyk-broker/node_modules/setheader/node_modules/debug
+
+WORKDIR /home/node
+
+COPY accept.server.json /home/node/accept.server.json
+COPY config.default.json /home/node/config.default.json
+
+# Symlink config.default.json to the broker installation directory
+RUN ln -sf /home/node/config.default.json /home/node/.npm-global/lib/node_modules/snyk-broker/config.default.json
+
+# ── fix permissions ───────────────────────────────────────────────────────────
+RUN chgrp -R 0 /home/node && \
+    chmod -R g=u,o= /home/node && \
+    chown -R node /home/node
+
+USER node
+
+EXPOSE ${PORT}
+
+CMD ["npx", "broker", "server", "--port", "7341"]
+
+

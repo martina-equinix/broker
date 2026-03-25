@@ -1,9 +1,0 @@
-
-{
-  "private": [
-    {
-      "method": "GET",
-      "path": "/v2/*"
-    }
-  ]
-}

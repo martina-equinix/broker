@@ -1,0 +1,52 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Snyk Broker Classic Server — ArgoCD proxy for Backstage (v4.147.0)
+#
+# This image runs the broker in "server" mode, acting as a reverse proxy
+# between Backstage and ArgoCD.
+#
+# Required environment variables at runtime:
+#   ARGOCD_URL        – Full URL of your ArgoCD instance, e.g.
+#                       https://argo.delivery.metalkube.net
+#   PORT              – Port the broker server listens on (default: 7342)
+#
+# Optional:
+#   BROKER_TOKEN      – Shared secret used to authenticate broker clients
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM node:20.19-trixie-slim
+
+ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
+ENV PATH=$PATH:/home/node/.npm-global/bin
+
+# ── runtime defaults ──────────────────────────────────────────────────────────
+ENV PORT=7342 \
+    ARGOCD_URL=https://argo.delivery.metalkube.net
+
+USER root
+
+# Install the older working version of snyk-broker
+RUN npm install --global snyk-broker@4.147.0
+
+# removing non-used (transitive) dependencies to fix vulnerabilities
+RUN rm -rf /home/node/.npm-global/lib/node_modules/snyk-broker/node_modules/setheader/node_modules/debug
+
+WORKDIR /home/node
+
+# ── broker accept rules and connection config ─────────────────────────────────
+COPY accept.argocd.json  /home/node/accept.argocd.json
+COPY config.default.json /home/node/config.default.json
+
+# Symlink config.default.json to the broker installation directory
+RUN ln -sf /home/node/config.default.json /home/node/.npm-global/lib/node_modules/snyk-broker/config.default.json
+
+# ── fix permissions for arbitrary UIDs (OpenShift / restricted PSPs) ──────────
+RUN chgrp -R 0 /home/node && \
+    chmod -R g=u,o= /home/node && \
+    chown -R node /home/node
+
+USER node
+
+EXPOSE ${PORT}
+
+CMD ["npx", "broker", "server", "--port", "7342"]
+

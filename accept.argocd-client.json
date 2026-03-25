@@ -15,10 +15,10 @@
       "path": "/(.*)",
       "origin": "${BACKEND_URL}",
       "auth": {
-        "scheme": "basic",
-        "username": "${HARBOR_USERNAME}",
-        "password": "${HARBOR_PASSWORD}"
+        "scheme": "bearer",
+        "token": "${ARGOCD_TOKEN}"
       }
     }
   ]
 }
+
