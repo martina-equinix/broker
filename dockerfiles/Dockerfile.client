@@ -31,7 +31,7 @@ ENV PORT=8001
 USER root
 
 # Install the older working version of snyk-broker
-RUN npm install --global snyk-broker@4.147.0
+RUN npm install --global snyk-broker@4.219.3
 
 # removing non-used (transitive) dependencies to fix vulnerabilities
 RUN rm -rf /home/node/.npm-global/lib/node_modules/snyk-broker/node_modules/setheader/node_modules/debug
@@ -43,8 +43,6 @@ COPY accept.harbor-client.json  /home/node/accept.harbor-client.json
 COPY accept.argocd-client.json  /home/node/accept.argocd-client.json
 COPY config.default.json        /home/node/config.default.json
 
-# Symlink config.default.json to the broker installation directory
-RUN ln -sf /home/node/config.default.json /home/node/.npm-global/lib/node_modules/snyk-broker/config.default.json
 
 # ── fix permissions for arbitrary UIDs (OpenShift / restricted PSPs) ──────────
 RUN chgrp -R 0 /home/node && \

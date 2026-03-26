@@ -20,7 +20,7 @@ ENV PORT=7341
 
 USER root
 
-RUN npm install --global snyk-broker@4.147.0
+RUN npm install --global snyk-broker@4.219.3
 
 # removing non-used (transitive) dependencies to fix vulnerabilities
 RUN rm -rf /home/node/.npm-global/lib/node_modules/snyk-broker/node_modules/setheader/node_modules/debug
@@ -30,8 +30,6 @@ WORKDIR /home/node
 COPY accept.server.json /home/node/accept.server.json
 COPY config.default.json /home/node/config.default.json
 
-# Symlink config.default.json to the broker installation directory
-RUN ln -sf /home/node/config.default.json /home/node/.npm-global/lib/node_modules/snyk-broker/config.default.json
 
 # ── fix permissions ───────────────────────────────────────────────────────────
 RUN chgrp -R 0 /home/node && \
